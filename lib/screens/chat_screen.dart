@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/message_model.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
+import 'call_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String receiverId;
@@ -66,6 +67,79 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() => _isTyping = false);
       }
     });
+
+    // Incoming call handler
+    _socketService.socket?.on('call_offer', (data) {
+      if (!mounted) return;
+      _showIncomingCallDialog(data);
+    });
+  }
+
+  void _showIncomingCallDialog(dynamic data) {
+    final callType = data['callType'] ?? 'video';
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF16213E),
+        title: Text(
+          'Incoming ${callType == 'video' ? 'Video' : 'Audio'} Call',
+          style: const TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          widget.receiverName,
+          style: const TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _socketService.socket?.emit('call_reject', {
+                'callerId': data['callerId'],
+                'callId': data['callId'],
+              });
+            },
+            child: const Text('Decline', style: TextStyle(color: Colors.red)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CallScreen(
+                    targetId: data['callerId'],
+                    targetName: widget.receiverName,
+                    currentUserId: widget.currentUserId,
+                    isCaller: false,
+                    offer: data['offer'],
+                    callType: callType,
+                    callId: data['callId']?.toString(),
+                  ),
+                ),
+              );
+            },
+            child: const Text('Accept', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startCall(String callType) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          targetId: widget.receiverId,
+          targetName: widget.receiverName,
+          currentUserId: widget.currentUserId,
+          isCaller: true,
+          callType: callType,
+        ),
+      ),
+    );
   }
 
   void _sendMessage() {
@@ -98,6 +172,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _socketService.removeListener('receive_message');
     _socketService.removeListener('typing_start');
     _socketService.removeListener('typing_stop');
+    _socketService.removeListener('call_offer');
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -118,6 +193,16 @@ class _ChatScreenState extends State<ChatScreen> {
               const Text('typing...', style: TextStyle(color: Colors.green, fontSize: 12)),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call, color: Colors.white),
+            onPressed: () => _startCall('audio'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam, color: Colors.white),
+            onPressed: () => _startCall('video'),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -182,7 +267,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 hintStyle: const TextStyle(color: Colors.grey),
                 filled: true,
                 fillColor: const Color(0xFF1A1A2E),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
+                ),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               ),
               onChanged: (val) {
